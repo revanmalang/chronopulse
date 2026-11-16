@@ -5,6 +5,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Check, ClipboardCopy, ShieldCheck } from "lucide-react";
 import type { GateRecord, Rates } from "@/lib/types";
 import { LEVELS, rupiah } from "@/lib/utils";
+import MeetingCreator from "./MeetingCreator";
 
 type Verdict = GateRecord["verdict"];
 
@@ -37,9 +38,15 @@ interface Result {
 interface Props {
   rates: Rates;
   onLog: (g: GateRecord) => void;
+  cloudReady: boolean;
+  loggedIn: boolean;
+  gToken: string | null;
+  accToken: string | null;
+  onLogin: () => void;
+  onUseTitle: (t: string) => void;
 }
 
-export default function GatekeeperForm({ rates, onLog }: Props) {
+export default function GatekeeperForm({ rates, onLog, cloudReady, loggedIn, gToken, accToken, onLogin, onUseTitle }: Props) {
   const [goal, setGoal] = useState("");
   const [purpose, setPurpose] = useState("info");
   const [urgency, setUrgency] = useState("sedang");
@@ -260,6 +267,13 @@ Mohon konfirmasi kehadiran. Terima kasih.`;
                   {logged ? "Tercatat di log" : "Catat keputusan ke log"}
                 </button>
               </div>
+              {result.verdict !== "async" && (
+                <MeetingCreator
+                  key={result.message}
+                  cloudReady={cloudReady} loggedIn={loggedIn} gToken={gToken} accToken={accToken}
+                  onLogin={onLogin} goal={goal.trim()} minutes={result.minutes} onUseTitle={onUseTitle}
+                />
+              )}
             </motion.div>
           )}
         </AnimatePresence>

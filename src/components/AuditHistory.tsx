@@ -3,7 +3,7 @@
 import { useMemo, useRef, useState } from "react";
 import { DatabaseBackup, Download, FileText, Printer, Trash2, Upload, X } from "lucide-react";
 import type { GateRecord, MeetingRecord, Snapshot } from "@/lib/types";
-import { LEVELS, ZONE_META, dateLabel, downloadFile, minutesLabel, rupiah, toCSV } from "@/lib/utils";
+import { LEVELS, ZONE_META, dateLabel, downloadFile, meetingScore, minutesLabel, rupiah, toCSV } from "@/lib/utils";
 
 interface Props {
   history: MeetingRecord[];
@@ -15,6 +15,7 @@ interface Props {
   onRestoreSnap: (s: Snapshot) => void;
   onDelete: (id: string) => void;
   onClear: () => void;
+  onToggle: (mid: string, aid: string) => void;
 }
 
 function summaryText(m: MeetingRecord): string {
@@ -31,7 +32,7 @@ function summaryText(m: MeetingRecord): string {
   ].join("\n");
 }
 
-export default function AuditHistory({ history, gateLog, snaps, notice, onBackup, onRestore, onRestoreSnap, onDelete, onClear }: Props) {
+export default function AuditHistory({ history, gateLog, snaps, notice, onBackup, onRestore, onRestoreSnap, onDelete, onClear, onToggle }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [openId, setOpenId] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -124,7 +125,7 @@ export default function AuditHistory({ history, gateLog, snaps, notice, onBackup
                 <tr className="font-mono text-xs">
                   <th className="p-2">Mulai</th><th className="p-2">Judul</th>
                   <th className="p-2 text-right">Durasi</th><th className="p-2 text-right">Peserta</th>
-                  <th className="p-2 text-right">Biaya</th><th className="p-2">Zona</th><th className="p-2" />
+                  <th className="p-2 text-right">Biaya</th><th className="p-2">Zona</th><th className="p-2 text-right">Skor</th><th className="p-2" />
                 </tr>
               </thead>
               <tbody>
@@ -140,6 +141,7 @@ export default function AuditHistory({ history, gateLog, snaps, notice, onBackup
                         {ZONE_META[m.zone].label}
                       </span>
                     </td>
+                    <td className="tnum p-2 text-right font-mono font-bold">{meetingScore(m)}</td>
                     <td className="p-2 text-right">
                       <div className="flex justify-end gap-2">
                         <button className="btn !px-2 !py-1" aria-label="Lihat kartu ringkasan" onClick={() => setOpenId(m.id)}>
@@ -203,6 +205,23 @@ export default function AuditHistory({ history, gateLog, snaps, notice, onBackup
             <div><dt className="label !mb-0">Status fokus</dt><dd className="font-mono">{ZONE_META[selected.zone].label}</dd></div>
             <div className="sm:col-span-2"><dt className="label !mb-0">Biaya aktual</dt><dd className="tnum font-mono text-3xl font-bold">{rupiah(selected.cost)}</dd></div>
             <div className="sm:col-span-2"><dt className="label !mb-0">Keputusan / hasil</dt><dd>{selected.outcome || "-"}</dd></div>
+            <div><dt className="label !mb-0">Skor produktif</dt><dd className="tnum font-mono text-xl font-bold">{meetingScore(selected)}/100</dd></div>
+            <div><dt className="label !mb-0">Biaya per action item</dt><dd className="tnum font-mono text-xl font-bold">{(selected.actions ?? []).length ? rupiah(selected.cost / (selected.actions ?? []).length) : "-"}</dd></div>
+            <div className="sm:col-span-2">
+              <dt className="label !mb-1">Action item</dt>
+              <dd>
+                {(selected.actions ?? []).length === 0 ? "-" : (
+                  <ul className="space-y-1">
+                    {(selected.actions ?? []).map((a) => (
+                      <li key={a.id} className="flex items-center gap-2">
+                        <input type="checkbox" className="h-4 w-4 accent-[#00A86B]" checked={a.done} onChange={() => onToggle(selected.id, a.id)} aria-label={`Selesai: ${a.text}`} />
+                        <span className={a.done ? "line-through opacity-60" : ""}>{a.text} <span className="font-mono text-xs">[{a.owner || "tanpa PIC"} / {a.due}]</span></span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </dd>
+            </div>
           </dl>
           <div className="no-print mt-5 flex flex-wrap gap-3">
             <button className="btn btn-ink" onClick={() => window.print()}><Printer size={16} /> Cetak / simpan PDF</button>

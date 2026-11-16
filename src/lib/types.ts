@@ -13,6 +13,19 @@ export interface Session {
   startedISO: string | null;
 }
 
+export interface ActionItem {
+  id: string;
+  text: string;
+  owner: string;
+  due: string;
+  done: boolean;
+}
+
+export interface CloudUser {
+  id: string;
+  email: string;
+}
+
 export interface MeetingRecord {
   id: string;
   title: string;
@@ -24,6 +37,7 @@ export interface MeetingRecord {
   rates: Rates;
   zone: Zone;
   outcome: string;
+  actions?: ActionItem[];
 }
 
 export interface GateRecord {

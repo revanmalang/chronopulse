@@ -79,13 +79,14 @@ function esc(v: string | number): string {
 export function toCSV(rows: MeetingRecord[]): string {
   const head = [
     "ID", "Judul", "Mulai", "Durasi (detik)", "Durasi (menit)", "Total Peserta",
-    "Staf", "Senior", "Manager", "Direktur", "Biaya (IDR)", "Zona", "Keputusan/Hasil",
+    "Staf", "Senior", "Manager", "Direktur", "Biaya (IDR)", "Zona", "Keputusan/Hasil", "Action Item", "Selesai", "Skor",
   ];
   const lines = rows.map((r) =>
     [
       r.id, r.title, dateLabel(r.startedAt), r.durationSec, (r.durationSec / 60).toFixed(1),
       r.headcount, r.counts.staf, r.counts.senior, r.counts.manager, r.counts.direktur,
       Math.round(r.cost), r.zone, r.outcome,
+      (r.actions ?? []).length, (r.actions ?? []).filter((a) => a.done).length, meetingScore(r),
     ].map(esc).join(",")
   );
   return "\uFEFF" + [head.map(esc).join(","), ...lines].join("\r\n");
@@ -124,4 +125,41 @@ export function parseBackup(text: string): Backup | null {
   } catch {
     return null;
   }
+}
+
+export function newId(p: string): string {
+  return p + Date.now().toString(36).toUpperCase() + Math.random().toString(36).slice(2, 5).toUpperCase();
+}
+
+export function addDays(n: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + n);
+  const p = (x: number) => String(x).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+export function nextHourLocal(): string {
+  const d = new Date();
+  d.setHours(d.getHours() + 1, 0, 0, 0);
+  const p = (x: number) => String(x).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:00`;
+}
+
+export function weekRange(offset: number): { start: Date; end: Date } {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7) + offset * 7);
+  const end = new Date(d);
+  end.setDate(end.getDate() + 7);
+  return { start: d, end };
+}
+
+export function meetingScore(m: MeetingRecord): number {
+  const acts = m.actions ?? [];
+  let s = 0;
+  if (m.outcome.trim()) s += 40;
+  if (acts.length > 0) s += 30;
+  if (acts.length > 0 && acts.every((a) => a.owner.trim() && a.due)) s += 15;
+  s += m.zone === "efisien" ? 15 : m.zone === "kritis" ? 7 : 0;
+  return s;
 }

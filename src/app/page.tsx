@@ -1,19 +1,23 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Gauge, ListChecks, ShieldCheck } from "lucide-react";
+import { FileBarChart, Gauge, ListChecks, LogIn, LogOut, ShieldCheck } from "lucide-react";
+import type { Session as SbSession } from "@supabase/supabase-js";
 import AuditHistory from "@/components/AuditHistory";
 import GatekeeperForm from "@/components/GatekeeperForm";
 import LiveTracker from "@/components/LiveTracker";
 import ProjectorMode from "@/components/ProjectorMode";
+import WeeklyReport from "@/components/WeeklyReport";
+import { dropMeetings, pullAll, pushGate, pushMeeting, updateMeeting } from "@/lib/cloud";
+import { supabase } from "@/lib/supabase";
 import { beep, unlockAudio } from "@/lib/audio";
-import type { Backup, Counts, GateRecord, MeetingRecord, Rates, Session, Snapshot } from "@/lib/types";
+import type { ActionItem, Backup, CloudUser, Counts, GateRecord, MeetingRecord, Rates, Session, Snapshot } from "@/lib/types";
 import { useLocalStorage } from "@/lib/useLocalStorage";
 import {
-  CRITICAL_SEC, DEFAULT_RATES, DEFAULT_SESSION, FATIGUE_SEC, burnPerHour, dateLabel, downloadFile, headcount, longDate, parseBackup, todayKey, zoneFor,
+  CRITICAL_SEC, DEFAULT_RATES, DEFAULT_SESSION, FATIGUE_SEC, burnPerHour, dateLabel, downloadFile, headcount, longDate, newId, parseBackup, todayKey, zoneFor,
 } from "@/lib/utils";
 
-type Tab = "tracker" | "gate" | "audit";
+type Tab = "tracker" | "gate" | "audit" | "report";
 
 export default function Home() {
   const [tab, setTab] = useState<Tab>("tracker");
@@ -25,6 +29,10 @@ export default function Home() {
   const [snaps, setSnaps] = useLocalStorage<Snapshot[]>("chronopulse:snapshots", []);
   const [clockText, setClockText] = useState("");
   const [notice, setNotice] = useState("");
+  const [user, setUser] = useState<CloudUser | null>(null);
+  const [gToken, setGToken] = useState<string | null>(null);
+  const [accToken, setAccToken] = useState<string | null>(null);
+  const synced = useRef("");
   const [soundOn, setSoundOn] = useLocalStorage<boolean>("chronopulse:sound", true);
   const [now, setNow] = useState(0);
   const prevSec = useRef(-1);
@@ -77,6 +85,66 @@ export default function Home() {
     }
   }, [elapsedSec, session.status, soundOn]);
 
+  useEffect(() => {
+    if (!supabase) return;
+    const apply = (s: SbSession | null) => {
+      if (!s) {
+        setUser(null);
+        setGToken(null);
+        setAccToken(null);
+        return;
+      }
+      setUser({ id: s.user.id, email: s.user.email ?? "" });
+      setAccToken(s.access_token);
+      if (s.provider_token) setGToken(s.provider_token);
+    };
+    supabase.auth.getSession().then(({ data }) => apply(data.session));
+    const { data } = supabase.auth.onAuthStateChange((_e, s) => apply(s));
+    return () => data.subscription.unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (!user || !histReady || !gateReady || synced.current === user.id) return;
+    synced.current = user.id;
+    pullAll().then((r) => {
+      if (!r) {
+        setNotice("Sinkron cloud gagal. Cek tabel dan RLS Supabase.");
+        return;
+      }
+      const hm = new Map<string, MeetingRecord>();
+      history.forEach((m) => hm.set(m.id, m));
+      r.history.forEach((m) => hm.set(m.id, m));
+      const gm = new Map<string, GateRecord>();
+      gateLog.forEach((g) => gm.set(g.id, g));
+      r.gateLog.forEach((g) => gm.set(g.id, g));
+      history.filter((m) => !r.history.some((x) => x.id === m.id)).forEach((m) => void pushMeeting(m, user));
+      gateLog.filter((g) => !r.gateLog.some((x) => x.id === g.id)).forEach((g) => void pushGate(g, user));
+      setHistory([...hm.values()].sort((a, b) => b.startedAt.localeCompare(a.startedAt)));
+      setGateLog([...gm.values()].sort((a, b) => b.at.localeCompare(a.at)));
+      setNotice("Data tim tersinkron.");
+    });
+  }, [user, histReady, gateReady, history, gateLog, setHistory, setGateLog]);
+
+  const login = () => {
+    void supabase?.auth.signInWithOAuth({
+      provider: "google",
+      options: { scopes: "https://www.googleapis.com/auth/calendar.events", redirectTo: window.location.origin },
+    });
+  };
+
+  const logout = () => {
+    synced.current = "";
+    void supabase?.auth.signOut();
+  };
+
+  const toggleAction = (mid: string, aid: string) => {
+    const m = history.find((x) => x.id === mid);
+    if (!m) return;
+    const next: MeetingRecord = { ...m, actions: (m.actions ?? []).map((a) => (a.id === aid ? { ...a, done: !a.done } : a)) };
+    setHistory((h) => h.map((x) => (x.id === mid ? next : x)));
+    if (user) void updateMeeting(next);
+  };
+
   const start = () => {
     unlockAudio();
     setSession((s) => ({
@@ -101,12 +169,12 @@ export default function Home() {
     setSession((s) => ({ ...DEFAULT_SESSION, title: s.title, counts: s.counts }));
   };
 
-  const finish = (outcome: string) => {
+  const finish = (outcome: string, actions: ActionItem[]) => {
     const totalMs = session.accMs + (session.status === "running" && session.startAt ? Date.now() - session.startAt : 0);
     const sec = Math.floor(totalMs / 1000);
     if (sec < 1) return;
     const rec: MeetingRecord = {
-      id: `M${Date.now().toString(36).toUpperCase()}`,
+      id: newId("M"),
       title: session.title.trim() || "Rapat tanpa judul",
       startedAt: session.startedISO ?? new Date().toISOString(),
       durationSec: sec,
@@ -116,8 +184,10 @@ export default function Home() {
       rates: { ...rates },
       zone: zoneFor(sec),
       outcome,
+      actions,
     };
     setHistory((h) => [rec, ...h]);
+    if (user) void pushMeeting(rec, user);
     reset();
     setTab("audit");
   };
@@ -159,6 +229,7 @@ export default function Home() {
     { k: "tracker", label: "Tracker langsung", icon: <Gauge size={16} /> },
     { k: "gate", label: "Gatekeeper", icon: <ShieldCheck size={16} /> },
     { k: "audit", label: `Log audit (${history.length})`, icon: <ListChecks size={16} /> },
+    { k: "report", label: "Laporan mingguan", icon: <FileBarChart size={16} /> },
   ];
 
   return (
@@ -184,6 +255,17 @@ export default function Home() {
         </nav>
       </header>
 
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <span className="font-mono text-xs text-ink/70">
+          {!supabase ? "Mode lokal (cloud belum dikonfigurasi)" : user ? `Cloud tim aktif: ${user.email}` : "Mode lokal. Masuk Google untuk sinkron tim dan buat Google Meet."}
+        </span>
+        {supabase && (user ? (
+          <button className="btn !py-1" onClick={logout}><LogOut size={14} /> Keluar</button>
+        ) : (
+          <button className="btn btn-ink !py-1" onClick={login}><LogIn size={14} /> Masuk dengan Google</button>
+        ))}
+      </div>
+
       {tab === "tracker" && (
         <LiveTracker
           session={session} rates={rates} elapsedSec={elapsedSec} cost={cost} zone={zone}
@@ -195,15 +277,37 @@ export default function Home() {
           onProjector={() => setProjector(true)}
         />
       )}
-      {tab === "gate" && <GatekeeperForm rates={rates} onLog={(g) => setGateLog((l) => [g, ...l])} />}
+      {tab === "gate" && (
+        <GatekeeperForm
+          rates={rates}
+          onLog={(g) => {
+            setGateLog((l) => [g, ...l]);
+            if (user) void pushGate(g, user);
+          }}
+          cloudReady={!!supabase} loggedIn={!!user} gToken={gToken} accToken={accToken} onLogin={login}
+          onUseTitle={(t) => {
+            setSession((s) => ({ ...s, title: t }));
+            setTab("tracker");
+          }}
+        />
+      )}
       {tab === "audit" && (
         <AuditHistory
           history={history} gateLog={gateLog} snaps={snaps} notice={notice}
           onBackup={backupNow} onRestore={restoreText} onRestoreSnap={restoreSnap}
-          onDelete={(id) => setHistory((h) => h.filter((m) => m.id !== id))}
-          onClear={() => setHistory([])}
+          onDelete={(id) => {
+            setHistory((h) => h.filter((m) => m.id !== id));
+            if (user) void dropMeetings([id]);
+          }}
+          onToggle={toggleAction}
+          onClear={() => {
+            if (user) void dropMeetings(history.map((m) => m.id));
+            setHistory([]);
+          }}
         />
       )}
+
+      {tab === "report" && <WeeklyReport history={history} gateLog={gateLog} />}
 
       <ProjectorMode
         open={projector} onClose={closeProjector} title={session.title}

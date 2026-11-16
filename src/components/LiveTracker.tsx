@@ -2,10 +2,10 @@
 
 import { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { AlertTriangle, Minus, Monitor, Pause, Play, Plus, RotateCcw, Square, Volume2, VolumeX } from "lucide-react";
-import type { Counts, Level, Rates, Session, Zone } from "@/lib/types";
+import { AlertTriangle, Minus, Monitor, Pause, Play, Plus, RotateCcw, Square, Trash2, Volume2, VolumeX } from "lucide-react";
+import type { ActionItem, Counts, Level, Rates, Session, Zone } from "@/lib/types";
 import {
-  CRITICAL_SEC, FATIGUE_SEC, LEVELS, ZONE_META, burnPerHour, clock, headcount, rupiah,
+  CRITICAL_SEC, FATIGUE_SEC, LEVELS, ZONE_META, addDays, burnPerHour, clock, headcount, newId, rupiah,
 } from "@/lib/utils";
 
 interface Props {
@@ -21,7 +21,7 @@ interface Props {
   onRates: (r: Rates) => void;
   onStart: () => void;
   onPause: () => void;
-  onFinish: (outcome: string) => void;
+  onFinish: (outcome: string, actions: ActionItem[]) => void;
   onReset: () => void;
   onProjector: () => void;
 }
@@ -29,6 +29,7 @@ interface Props {
 export default function LiveTracker(p: Props) {
   const [finishing, setFinishing] = useState(false);
   const [outcome, setOutcome] = useState("");
+  const [actions, setActions] = useState<ActionItem[]>([]);
   const { session, rates, zone } = p;
   const running = session.status === "running";
   const idle = session.status === "idle";
@@ -42,13 +43,20 @@ export default function LiveTracker(p: Props) {
     p.onCounts({ ...session.counts, [k]: Math.max(0, Math.min(999, Math.floor(v) || 0)) });
   const setRate = (k: Level, v: number) => p.onRates({ ...rates, [k]: Math.max(0, Math.floor(v) || 0) });
 
+  const setAct = (i: number, patch: Partial<ActionItem>) =>
+    setActions((l) => l.map((a, j) => (j === i ? { ...a, ...patch } : a)));
+
   const startFinish = () => {
     if (running) p.onPause();
     setFinishing(true);
   };
   const confirmFinish = () => {
-    p.onFinish(outcome.trim());
+    p.onFinish(
+      outcome.trim(),
+      actions.filter((a) => a.text.trim()).map((a) => ({ ...a, text: a.text.trim(), owner: a.owner.trim() }))
+    );
     setOutcome("");
+    setActions([]);
     setFinishing(false);
   };
 
@@ -174,6 +182,22 @@ export default function LiveTracker(p: Props) {
                 onChange={(e) => setOutcome(e.target.value)} maxLength={400}
                 placeholder="Tulis keputusan dan penanggung jawab"
               />
+              <div className="mt-3">
+                <span className="label">Action item (tindak lanjut)</span>
+                {actions.map((a, i) => (
+                  <div key={a.id} className="mb-2 grid grid-cols-[1fr_auto] gap-2 sm:grid-cols-[2fr_1fr_auto_auto]">
+                    <input className="field" placeholder="Tugas" value={a.text} onChange={(e) => setAct(i, { text: e.target.value })} />
+                    <input className="field" placeholder="PIC" value={a.owner} onChange={(e) => setAct(i, { owner: e.target.value })} />
+                    <input type="date" className="field tnum font-mono" value={a.due} onChange={(e) => setAct(i, { due: e.target.value })} />
+                    <button className="btn !px-2" aria-label="Hapus action item" onClick={() => setActions((l) => l.filter((_, j) => j !== i))}>
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                ))}
+                <button className="btn !py-1" onClick={() => setActions((l) => [...l, { id: newId("A"), text: "", owner: "", due: addDays(3), done: false }])}>
+                  <Plus size={14} /> Tambah action item
+                </button>
+              </div>
               <div className="mt-3 flex gap-3">
                 <button className="btn btn-ok" onClick={confirmFinish}>Simpan ke log</button>
                 <button className="btn" onClick={() => setFinishing(false)}>Batal</button>
