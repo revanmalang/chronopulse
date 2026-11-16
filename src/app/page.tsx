@@ -7,10 +7,10 @@ import GatekeeperForm from "@/components/GatekeeperForm";
 import LiveTracker from "@/components/LiveTracker";
 import ProjectorMode from "@/components/ProjectorMode";
 import { beep, unlockAudio } from "@/lib/audio";
-import type { Counts, GateRecord, MeetingRecord, Rates, Session } from "@/lib/types";
+import type { Backup, Counts, GateRecord, MeetingRecord, Rates, Session, Snapshot } from "@/lib/types";
 import { useLocalStorage } from "@/lib/useLocalStorage";
 import {
-  CRITICAL_SEC, DEFAULT_RATES, DEFAULT_SESSION, FATIGUE_SEC, burnPerHour, headcount, zoneFor,
+  CRITICAL_SEC, DEFAULT_RATES, DEFAULT_SESSION, FATIGUE_SEC, burnPerHour, dateLabel, downloadFile, headcount, longDate, parseBackup, todayKey, zoneFor,
 } from "@/lib/utils";
 
 type Tab = "tracker" | "gate" | "audit";
@@ -20,20 +20,35 @@ export default function Home() {
   const [projector, setProjector] = useState(false);
   const [session, setSession] = useLocalStorage<Session>("chronopulse:session", DEFAULT_SESSION);
   const [rates, setRates] = useLocalStorage<Rates>("chronopulse:rates", DEFAULT_RATES);
-  const [history, setHistory] = useLocalStorage<MeetingRecord[]>("chronopulse:history", []);
-  const [gateLog, setGateLog] = useLocalStorage<GateRecord[]>("chronopulse:gate", []);
+  const [history, setHistory, histReady] = useLocalStorage<MeetingRecord[]>("chronopulse:history", []);
+  const [gateLog, setGateLog, gateReady] = useLocalStorage<GateRecord[]>("chronopulse:gate", []);
+  const [snaps, setSnaps] = useLocalStorage<Snapshot[]>("chronopulse:snapshots", []);
+  const [clockText, setClockText] = useState("");
+  const [notice, setNotice] = useState("");
   const [soundOn, setSoundOn] = useLocalStorage<boolean>("chronopulse:sound", true);
   const [now, setNow] = useState(0);
   const prevSec = useRef(-1);
 
-  // Buka kunci AudioContext pada interaksi pertama (kebijakan autoplay browser).
+  useEffect(() => {
+    const tick = () => setClockText(longDate(new Date()));
+    tick();
+    const id = window.setInterval(tick, 20000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    if (!histReady || !gateReady) return;
+    if (history.length === 0 && gateLog.length === 0) return;
+    const snap: Snapshot = { date: todayKey(), at: new Date().toISOString(), rates, history, gateLog };
+    setSnaps((s) => [snap, ...s.filter((x) => x.date !== snap.date)].slice(0, 7));
+  }, [history, gateLog, rates, histReady, gateReady, setSnaps]);
+
   useEffect(() => {
     const unlock = () => unlockAudio();
     window.addEventListener("pointerdown", unlock, { once: true });
     return () => window.removeEventListener("pointerdown", unlock);
   }, []);
 
-  // Ticker stopwatch berbasis timestamp (tidak drift).
   useEffect(() => {
     setNow(Date.now());
     if (session.status !== "running") return;
@@ -49,7 +64,6 @@ export default function Home() {
   const zone = zoneFor(elapsedSec);
   const people = headcount(session.counts);
 
-  // Alert suara saat melewati ambang 30 menit, 45 menit, lalu pengingat tiap 5 menit.
   useEffect(() => {
     const prev = prevSec.current;
     prevSec.current = elapsedSec;
@@ -69,6 +83,7 @@ export default function Home() {
       ...s,
       status: "running",
       startAt: Date.now(),
+      title: s.title.trim() || `Rapat ${dateLabel(new Date().toISOString())}`,
       startedISO: s.startedISO ?? new Date().toISOString(),
     }));
   };
@@ -113,6 +128,31 @@ export default function Home() {
     setSoundOn((v) => !v);
   };
 
+  const backupNow = () => {
+    const b: Backup = { app: "chronopulse", version: 1, exportedAt: new Date().toISOString(), rates, history, gateLog };
+    downloadFile(`chronopulse-backup-${todayKey()}.json`, JSON.stringify(b, null, 2), "application/json");
+    setNotice(`Backup diunduh (${history.length} rapat).`);
+  };
+
+  const restoreText = (text: string) => {
+    const b = parseBackup(text);
+    if (!b) {
+      setNotice("File bukan backup ChronoPulse yang valid.");
+      return;
+    }
+    setHistory(b.history);
+    setGateLog(b.gateLog);
+    setRates(b.rates);
+    setNotice(`Data dipulihkan: ${b.history.length} rapat.`);
+  };
+
+  const restoreSnap = (s: Snapshot) => {
+    setHistory(s.history);
+    setGateLog(s.gateLog);
+    setRates(s.rates);
+    setNotice(`Data dipulihkan dari backup otomatis ${s.date}.`);
+  };
+
   const closeProjector = useCallback(() => setProjector(false), []);
 
   const tabs: { k: Tab; label: string; icon: React.ReactNode }[] = [
@@ -129,6 +169,7 @@ export default function Home() {
           <div>
             <h1 className="font-display text-2xl font-bold leading-tight sm:text-3xl">ChronoPulse</h1>
             <p className="text-sm text-ink/70">Pelacak biaya rapat real-time dan gatekeeper keputusan asinkron</p>
+            <p className="tnum font-mono text-xs text-ink/70">{clockText || "\u00a0"}</p>
           </div>
         </div>
         <nav className="flex flex-wrap gap-3" aria-label="Navigasi utama">
@@ -157,7 +198,8 @@ export default function Home() {
       {tab === "gate" && <GatekeeperForm rates={rates} onLog={(g) => setGateLog((l) => [g, ...l])} />}
       {tab === "audit" && (
         <AuditHistory
-          history={history} gateLog={gateLog}
+          history={history} gateLog={gateLog} snaps={snaps} notice={notice}
+          onBackup={backupNow} onRestore={restoreText} onRestoreSnap={restoreSnap}
           onDelete={(id) => setHistory((h) => h.filter((m) => m.id !== id))}
           onClear={() => setHistory([])}
         />

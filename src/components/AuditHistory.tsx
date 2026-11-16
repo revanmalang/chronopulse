@@ -1,13 +1,18 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { Download, FileText, Printer, Trash2, X } from "lucide-react";
-import type { GateRecord, MeetingRecord } from "@/lib/types";
+import { useMemo, useRef, useState } from "react";
+import { DatabaseBackup, Download, FileText, Printer, Trash2, Upload, X } from "lucide-react";
+import type { GateRecord, MeetingRecord, Snapshot } from "@/lib/types";
 import { LEVELS, ZONE_META, dateLabel, downloadFile, minutesLabel, rupiah, toCSV } from "@/lib/utils";
 
 interface Props {
   history: MeetingRecord[];
   gateLog: GateRecord[];
+  snaps: Snapshot[];
+  notice: string;
+  onBackup: () => void;
+  onRestore: (text: string) => void;
+  onRestoreSnap: (s: Snapshot) => void;
   onDelete: (id: string) => void;
   onClear: () => void;
 }
@@ -26,7 +31,8 @@ function summaryText(m: MeetingRecord): string {
   ].join("\n");
 }
 
-export default function AuditHistory({ history, gateLog, onDelete, onClear }: Props) {
+export default function AuditHistory({ history, gateLog, snaps, notice, onBackup, onRestore, onRestoreSnap, onDelete, onClear }: Props) {
+  const fileRef = useRef<HTMLInputElement>(null);
   const [openId, setOpenId] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
@@ -53,9 +59,20 @@ export default function AuditHistory({ history, gateLog, onDelete, onClear }: Pr
       await navigator.clipboard.writeText(summaryText(selected));
       setCopied(true);
       window.setTimeout(() => setCopied(false), 2000);
-    } catch {
-      /* clipboard diblokir */
-    }
+    } catch {}
+  };
+
+  const pickFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    e.target.value = "";
+    if (!f) return;
+    const r = new FileReader();
+    r.onload = () => onRestore(String(r.result));
+    r.readAsText(f);
+  };
+
+  const restoreSnap = (s: Snapshot) => {
+    if (window.confirm(`Pulihkan data dari backup otomatis ${s.date}? Data sekarang akan diganti.`)) onRestoreSnap(s);
   };
 
   const clearAll = () => {
@@ -138,6 +155,33 @@ export default function AuditHistory({ history, gateLog, onDelete, onClear }: Pr
               </tbody>
             </table>
           </div>
+        )}
+      </section>
+
+      <section className="panel p-5">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="font-display text-lg font-bold">Backup data</h2>
+            <p className="text-sm text-ink/70">Backup otomatis harian disimpan di browser (7 hari terakhir). Unduh file JSON untuk cadangan permanen.</p>
+          </div>
+          <div className="flex gap-3">
+            <button className="btn btn-ink" onClick={onBackup}><DatabaseBackup size={16} /> Backup sekarang</button>
+            <button className="btn" onClick={() => fileRef.current?.click()}><Upload size={16} /> Pulihkan dari file</button>
+            <input ref={fileRef} type="file" accept="application/json,.json" className="hidden" onChange={pickFile} />
+          </div>
+        </div>
+        {notice && <p role="status" className="mb-3 text-sm font-semibold text-ok">{notice}</p>}
+        {snaps.length === 0 ? (
+          <p className="text-sm text-ink/70">Belum ada backup otomatis. Muncul setelah ada rapat atau keputusan gatekeeper yang tercatat.</p>
+        ) : (
+          <ul className="divide-y divide-ink border border-ink bg-alabaster text-sm">
+            {snaps.map((s) => (
+              <li key={s.date} className="flex flex-wrap items-center justify-between gap-2 p-2">
+                <span className="tnum font-mono text-xs">{s.date} / {dateLabel(s.at).slice(11)} - {s.history.length} rapat, {s.gateLog.length} keputusan gate</span>
+                <button className="btn !px-2 !py-1" onClick={() => restoreSnap(s)}>Pulihkan</button>
+              </li>
+            ))}
+          </ul>
         )}
       </section>
 

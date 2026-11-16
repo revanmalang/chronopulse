@@ -1,4 +1,4 @@
-import type { Counts, Level, MeetingRecord, Rates, Session, Zone } from "./types";
+import type { Backup, Counts, Level, MeetingRecord, Rates, Session, Zone } from "./types";
 
 export const LEVELS: { key: Level; label: string }[] = [
   { key: "staf", label: "Staf" },
@@ -101,4 +101,27 @@ export function downloadFile(name: string, content: string, mime: string): void 
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+}
+
+export function todayKey(): string {
+  const d = new Date();
+  const p = (x: number) => String(x).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+export function longDate(d: Date): string {
+  const hari = ["Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"];
+  const bulan = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
+  const p = (x: number) => String(x).padStart(2, "0");
+  return `${hari[d.getDay()]}, ${d.getDate()} ${bulan[d.getMonth()]} ${d.getFullYear()} - ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+export function parseBackup(text: string): Backup | null {
+  try {
+    const b = JSON.parse(text);
+    if (!b || b.app !== "chronopulse" || !Array.isArray(b.history) || !Array.isArray(b.gateLog) || !b.rates) return null;
+    return b as Backup;
+  } catch {
+    return null;
+  }
 }

@@ -10,12 +10,9 @@ export function unlockAudio(): void {
     if (!Ctor) return;
     if (!ctx) ctx = new Ctor();
     if (ctx.state === "suspended") void ctx.resume();
-  } catch {
-    /* audio tidak tersedia */
-  }
+  } catch {}
 }
 
-/** Beep lembut: sine wave dengan envelope halus. */
 export function beep(freqs: number[]): void {
   try {
     const c = ctx;
@@ -33,7 +30,5 @@ export function beep(freqs: number[]): void {
       osc.start(t0);
       osc.stop(t0 + 0.3);
     });
-  } catch {
-    /* abaikan */
-  }
+  } catch {}
 }

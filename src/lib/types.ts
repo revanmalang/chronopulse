@@ -35,3 +35,20 @@ export interface GateRecord {
   plannedMin: number;
   estCost: number;
 }
+
+export interface Backup {
+  app: "chronopulse";
+  version: 1;
+  exportedAt: string;
+  rates: Rates;
+  history: MeetingRecord[];
+  gateLog: GateRecord[];
+}
+
+export interface Snapshot {
+  date: string;
+  at: string;
+  rates: Rates;
+  history: MeetingRecord[];
+  gateLog: GateRecord[];
+}
