@@ -1,0 +1,42 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body { min-height: 100%; }
+body {
+  background-color: #F4F3EF;
+  background-image: radial-gradient(rgba(24,24,27,0.16) 1px, transparent 1px);
+  background-size: 20px 20px;
+  color: #18181B;
+}
+
+@layer components {
+  .panel { @apply bg-panel border border-ink; }
+  .btn {
+    @apply inline-flex select-none items-center justify-center gap-2 border border-ink bg-panel px-4 py-2 text-sm font-semibold text-ink;
+    box-shadow: 3px 3px 0 #18181B;
+    transition: transform 80ms ease, box-shadow 80ms ease;
+  }
+  .btn:active { transform: translate(3px, 3px); box-shadow: 0 0 0 #18181B; }
+  .btn:disabled { opacity: 0.35; pointer-events: none; }
+  .btn:focus-visible, .field:focus-visible { outline: 2px solid #FF4D00; outline-offset: 2px; }
+  .btn-signal { @apply bg-signal text-white; }
+  .btn-ok { @apply bg-ok text-white; }
+  .btn-ink { @apply bg-ink text-alabaster; }
+  .field { @apply w-full border border-ink bg-alabaster px-3 py-2 text-sm; }
+  .label { @apply mb-1 block font-mono text-[11px] tracking-wide text-ink/70; }
+  .tnum { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
+  .led { @apply inline-block h-2.5 w-2.5 rounded-full border border-ink; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+
+@media print {
+  body { background: #fff !important; }
+  body * { visibility: hidden; }
+  .print-area, .print-area * { visibility: visible; }
+  .print-area { position: absolute; left: 0; top: 0; width: 100%; box-shadow: none !important; }
+  .no-print { display: none !important; }
+}
